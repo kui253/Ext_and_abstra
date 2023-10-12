@@ -69,7 +69,7 @@ def main():
     parser = HfArgumentParser(
         (ModelArguments, DataTrainingArguments, Seq2SeqTrainingArguments)
     )
-    config_file = "./config/graphbart_config.json"
+    config_file = "./config/graphbart_configV3.json"
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         config_file = sys.argv[1]
     model_args, data_args, training_args = parser.parse_json_file(config_file)

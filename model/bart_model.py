@@ -1498,7 +1498,6 @@ class DualAttenEncoder(BartEncoder):
         )  # 12 层
         # self.layers_importance = nn.ModuleList([BartDecoderLayer(config) for _ in range(config.split_encoder_layers)]) # 4层
         self.layernorm_embedding = nn.LayerNorm(embed_dim)
-        self.base_encoder_layers = 8
         self.init_weights()
 
     def forward(
@@ -1527,7 +1526,7 @@ class DualAttenEncoder(BartEncoder):
         )
         if not hasattr(self, "layers_importance"):
             self.layers_importance = copy.deepcopy(
-                self.layers[-(self.split_encoder_layers + 1) : -1]
+                self.layers[: self.split_encoder_layers]
             )
 
         sorted_input_ids = kwargs.get("sorted_input_ids", None)
@@ -1539,6 +1538,13 @@ class DualAttenEncoder(BartEncoder):
         input_ids = torch.concat([input_ids, sorted_input_ids], dim=0)
         original_attention_mask = attention_mask
         original_sorted_attention_mask = sorted_attention_mask
+        concat_attention_mask = torch.concat(
+            [
+                attention_mask,
+                sorted_attention_mask,
+            ],
+            dim=1,
+        )
         attention_mask = torch.concat(
             [
                 attention_mask,
@@ -1546,6 +1552,7 @@ class DualAttenEncoder(BartEncoder):
             ],
             dim=0,
         )
+
         # retrieve input_ids and inputs_embeds
         if input_ids is not None and inputs_embeds is not None:
             raise ValueError(
@@ -1573,6 +1580,10 @@ class DualAttenEncoder(BartEncoder):
         # expand attention_mask
         if attention_mask is not None:
             # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
+
+            concat_attention_mask = _expand_mask(
+                concat_attention_mask, inputs_embeds.dtype
+            )
             attention_mask = _expand_mask(attention_mask, inputs_embeds.dtype)
 
         encoder_states = () if output_hidden_states else None
@@ -1591,7 +1602,7 @@ class DualAttenEncoder(BartEncoder):
             ), f"The head_mask should be specified for {len(self.layers)} layers, but it is for {head_mask.size()[0]}."
         for idx, encoder_layer in enumerate(self.layers):
             if output_hidden_states:
-                encoder_states = encoder_states + (normal_hidden_state,)
+                encoder_states = encoder_states + (hidden_states,)
             # add LayerDrop (see https://arxiv.org/abs/1909.11556 for description)
             dropout_probability = random.uniform(0, 1)
             if self.training and (
@@ -1599,41 +1610,49 @@ class DualAttenEncoder(BartEncoder):
             ):  # skip the layer
                 layer_outputs = (None, None)
             else:
-                layer_outputs = encoder_layer(
-                    normal_hidden_state,
-                    normal_attention_mask,
-                    layer_head_mask=(head_mask[idx] if head_mask is not None else None),
-                    output_attentions=output_attentions,
-                )
+                if idx < self.split_encoder_layers:
+                    layer_outputs = encoder_layer(
+                        normal_hidden_state,
+                        normal_attention_mask,
+                        layer_head_mask=(
+                            head_mask[idx] if head_mask is not None else None
+                        ),
+                        output_attentions=output_attentions,
+                    )
+                    impt_outputs = self.layers_importance[idx](
+                        imptance_hidden_state,
+                        imptance_attention_mask,
+                        layer_head_mask=(
+                            head_mask[idx] if head_mask is not None else None
+                        ),
+                        output_attentions=output_attentions,
+                    )
+                    normal_hidden_state = layer_outputs[0]
+                    imptance_hidden_state = impt_outputs[0]
+                    hidden_states = torch.concat(
+                        [normal_hidden_state, imptance_hidden_state], dim=1
+                    )
+                    attention_mask = torch.concat(
+                        [normal_attention_mask, imptance_attention_mask], dim=1
+                    )
+                    output_attentions_mat = torch.concat(
+                        [layer_outputs[1], impt_outputs[1]], dim=1
+                    )
+                else:
+                    layer_outputs = encoder_layer(
+                        hidden_states,
+                        concat_attention_mask,
+                        layer_head_mask=(
+                            head_mask[idx] if head_mask is not None else None
+                        ),
+                        output_attentions=output_attentions,
+                    )
 
-                normal_hidden_state = layer_outputs[0]
+                    hidden_states = layer_outputs[0]
+                    output_attentions_mat = layer_outputs[1]
 
             if output_attentions:
-                all_attentions = all_attentions + (layer_outputs[1],)
-        # another attention
-        for idx, impt_encoder_layer in enumerate(self.layers_importance):
-            if output_hidden_states:
-                encoder_states = encoder_states + (imptance_hidden_state,)
-            # add LayerDrop (see https://arxiv.org/abs/1909.11556 for description)
-            dropout_probability = random.uniform(0, 1)
-            if self.training and (
-                dropout_probability < self.layerdrop
-            ):  # skip the layer
-                impt_layer_outputs = (None, None)
-            else:
-                impt_layer_outputs = impt_encoder_layer(
-                    imptance_hidden_state,
-                    imptance_attention_mask,
-                    layer_head_mask=(head_mask[idx] if head_mask is not None else None),
-                    output_attentions=output_attentions,
-                )
-
-                imptance_hidden_state = impt_layer_outputs[0]
-
-            if output_attentions:
-                all_attentions = all_attentions + (impt_layer_outputs[1],)
-        if output_hidden_states:
-            encoder_states = encoder_states + (hidden_states,)
+                all_attentions = all_attentions + (output_attentions_mat,)
 
         if not return_dict:
             return tuple(
@@ -1642,11 +1661,10 @@ class DualAttenEncoder(BartEncoder):
                 if v is not None
             )
         # Cross-Attention Block
-        return DualAttenModelOutput(
-            normal_hidden_state=normal_hidden_state,
-            imptance_hidden_state=imptance_hidden_state,
-            normal_encoder_attn_mask=original_attention_mask,
-            imptance_encoder_attn_mask=original_sorted_attention_mask,
+        return BaseModelOutput(
+            last_hidden_state=hidden_states,
+            hidden_states=encoder_states,
+            attentions=all_attentions,
         )
 
 
@@ -1668,7 +1686,7 @@ class BaseBart(BartPretrainedModel):
             self.decoder = BartDecoderWithDualCrossAttention(config, self.shared)
         elif config.model_type == "importanceattn":
             self.encoder = DualAttenEncoder(config, self.shared)
-            self.decoder = DualAttenDecoder(config, self.shared)
+            self.decoder = BartDecoder(config, self.shared)
         else:
             print("请指定模型类型")
         self.init_weights()
@@ -1745,7 +1763,9 @@ class BaseBart(BartPretrainedModel):
 
         if isinstance(encoder_outputs, BaseModelOutput):
             encoder_hidden_states = encoder_outputs.last_hidden_state
-            encoder_attention_mask = attention_mask
+            encoder_attention_mask = torch.concat(
+                [attention_mask, kwargs["sorted_attention_mask"]], dim=1
+            )
         elif isinstance(encoder_outputs, DualBaseModelOutput):
             encoder_hidden_states = (None,)
             encoder_attention_mask = None
@@ -1978,7 +1998,14 @@ class BART(BartPretrainedModel):
             model_kwargs["token_type_ids"] = token_type_ids.index_select(
                 0, expanded_return_idx
             )
-
+        if "sorted_input_ids" in model_kwargs.keys():
+            model_kwargs["sorted_input_ids"] = model_kwargs[
+                "sorted_input_ids"
+            ].index_select(0, expanded_return_idx)
+        if "sorted_attention_mask" in model_kwargs.keys():
+            model_kwargs["sorted_attention_mask"] = model_kwargs[
+                "sorted_attention_mask"
+            ].index_select(0, expanded_return_idx)
         if attention_mask is not None:
             if isinstance(attention_mask, list):
                 model_kwargs["attention_mask"] = [

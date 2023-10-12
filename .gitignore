@@ -1,2 +1,5 @@
 *.log
-.vscode
+.vscode/
+model/__pycache__/
+utils/__pycache__/
+_transformers/__pycache__/
