@@ -72,7 +72,9 @@ def main():
     config_file = "./config/graphbart_configV3.json"
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         config_file = sys.argv[1]
-    model_args, data_args, training_args = parser.parse_json_file(config_file)
+    model_args, data_args, training_args = parser.parse_json_file(
+        config_file
+    )  # 这里会重写之前hfArgumentParser中的值
     data_args, model_args, training_args = check_args(
         data_args, model_args, training_args
     )
@@ -143,7 +145,7 @@ def main():
         logger.info(k)
         for arg_name, arg_value in asdict(v).items():
             logger.info(f"{arg_name:{max_width}}  {arg_value}")
-
+    # 上面是保存这些模型的参数的值
     # Set seed before initializing model.
     set_seed(training_args.seed)
 
@@ -218,6 +220,7 @@ def main():
         callbacks_ls.append(CometCallBack(training_args))
     if training_args.freeze_fine_tune_enable:
         callbacks_ls.append(FineTuneCallBack(model_args))
+    # callbacks的作用，就是讲一些函数放到训练的过程中，比如说在训练开始的时候，打印一些参数，或者是在训练的过程中，打印一些参数
     # callbacks_ls.append(ShowModelParamsCallBack)
 
     # bart_params,additional_params = [],[]
@@ -327,7 +330,7 @@ def main():
                 with open(output_prediction_file, "w") as writer:
                     writer.write("\n".join(predictions))
 
-    # 清除所有的checkpoint
+    # 清除所有的checkpoint， 然后保存最好的rouge 模型参数
     file_ls = os.listdir(training_args.output_dir)
     for file in file_ls:
         if file.startswith("checkpoint"):
