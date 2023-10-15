@@ -125,48 +125,45 @@ class MyDataCollatorForSeq2Seq:
             padded_features["attention_mask"] = normal_padded_featurs["attention_mask"]
             padded_features["labels"] = normal_padded_featurs["labels"]
         elif feature.get("sorted_attention_mask", None) is not None:
-            padded_features = self.tokenizer.pad(
-                features,
+            normal_features_ls = [
+                {
+                    "attention_mask": x["attention_mask"],
+                    "input_ids": x["input_ids"],
+                    "labels": x["labels"],
+                }
+                for x in features
+            ]
+            normal_padded_featurs = self.tokenizer.pad(
+                normal_features_ls,
                 padding=self.padding,
                 max_length=self.max_length,
                 pad_to_multiple_of=self.pad_to_multiple_of,
                 return_tensors="pt",
             )
-            res_len = (
-                padded_features["sorted_attention_mask"].shape[-1]
-                - padded_features["attention_mask"].shape[-1]
+            temp_padded_features = [
+                {
+                    "input_ids": f["sorted_input_ids"],
+                    "attention_mask": f["sorted_attention_mask"],
+                }
+                for f in features
+            ]
+            temp_padded_features = self.tokenizer.pad(
+                temp_padded_features,
+                padding=self.padding,
+                max_length=self.max_length,
+                pad_to_multiple_of=self.pad_to_multiple_of,
+                return_tensors="pt",
             )
-            if res_len > 0:
-                padded_features["attention_mask"] = torch.cat(
-                    [
-                        padded_features["attention_mask"],
-                        torch.zeros((res_len,), dtype=torch.int64).view(1, -1),
-                    ],
-                    dim=1,
-                )
-                padded_features["input_ids"] = torch.cat(
-                    [
-                        padded_features["input_ids"],
-                        torch.ones((res_len,), dtype=torch.int64).view(1, -1),
-                    ],
-                    dim=1,
-                )
-            else:
-                res_len = -res_len
-                padded_features["sorted_attention_mask"] = torch.cat(
-                    [
-                        padded_features["sorted_attention_mask"],
-                        torch.zeros((res_len,), dtype=torch.int64).view(1, -1),
-                    ],
-                    dim=1,
-                )
-                padded_features["sorted_input_ids"] = torch.cat(
-                    [
-                        padded_features["sorted_input_ids"],
-                        torch.ones((res_len,), dtype=torch.int64).view(1, -1),
-                    ],
-                    dim=1,
-                )
+            padded_features = {
+                "input_ids": normal_padded_featurs["input_ids"],
+                "attention_mask": normal_padded_featurs["attention_mask"],
+                "labels": normal_padded_featurs["labels"],
+                "sorted_input_ids": temp_padded_features["input_ids"],
+                "sorted_attention_mask": temp_padded_features["attention_mask"],
+            }
+            padded_features = pad_other_features(
+                padded_features, self.tokenizer.pad_token_id
+            )
         else:
             padded_features = self.tokenizer.pad(
                 features,
@@ -175,6 +172,7 @@ class MyDataCollatorForSeq2Seq:
                 pad_to_multiple_of=self.pad_to_multiple_of,
                 return_tensors="pt",
             )
+
         if self.model is not None and hasattr(
             self.model, "prepare_decoder_input_ids_from_labels"
         ):
@@ -184,6 +182,52 @@ class MyDataCollatorForSeq2Seq:
             padded_features["decoder_input_ids"] = decoder_input_ids
 
         return padded_features
+
+
+def pad_other_features(features, pad_token_id):
+    res_len = features["input_ids"].shape[1] - features["sorted_input_ids"].shape[1]
+    if res_len > 0:
+        features["sorted_input_ids"] = torch.cat(
+            [
+                features["sorted_input_ids"],
+                torch.ones(
+                    (features["sorted_input_ids"].shape[0], res_len), dtype=torch.long
+                )
+                * pad_token_id,
+            ],
+            dim=1,
+        )
+        features["sorted_attention_mask"] = torch.cat(
+            [
+                features["sorted_attention_mask"],
+                torch.zeros(
+                    (features["sorted_attention_mask"].shape[0], res_len),
+                    dtype=torch.long,
+                ),
+            ],
+            dim=1,
+        )
+    else:
+        res_len = -res_len
+        features["input_ids"] = torch.cat(
+            [
+                features["input_ids"],
+                torch.ones((features["input_ids"].shape[0], res_len), dtype=torch.long)
+                * pad_token_id,
+            ],
+            dim=1,
+        )
+        features["attention_mask"] = torch.cat(
+            [
+                features["attention_mask"],
+                torch.zeros(
+                    (features["attention_mask"].shape[0], res_len),
+                    dtype=torch.long,
+                ),
+            ],
+            dim=1,
+        )
+    return features
 
 
 def pad_list_of_tensor(features, tokenizer):

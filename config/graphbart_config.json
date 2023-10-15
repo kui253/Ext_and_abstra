@@ -21,7 +21,7 @@
     "max_seq_len_per_utt": 200,
     "max_utt_num": 30,
     "backbone_model": "/data1/yjy/DialogueSum/pretrained_model/bart_large",
-    "model_type": "graphtransformer",
+    "model_type": "baseline",
     "use_fast_tokenizer": true,
     "rezero": 1,
     "feature_types": [
@@ -48,7 +48,7 @@
     "predict_with_generate": true,
     "prediction_loss_only": false,
     "overwrite_output_dir": true,
-    "per_device_train_batch_size": 1,
+    "per_device_train_batch_size": 2,
     "per_device_eval_batch_size": 12,
     "eval_accumulation_steps": -1,
     "gradient_accumulation_steps": 8,

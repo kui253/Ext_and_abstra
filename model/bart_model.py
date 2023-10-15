@@ -752,10 +752,8 @@ class DualBaseModelOutput(ModelOutput):
 
 @dataclass
 class DualAttenModelOutput(ModelOutput):
-    normal_hidden_state: torch.FloatTensor = None
-    imptance_hidden_state: torch.FloatTensor = None
-    normal_encoder_attn_mask: torch.LongTensor = None
-    imptance_encoder_attn_mask: torch.LongTensor = None
+    last_hidden_state: torch.FloatTensor = None
+    encoder_attn_mask: torch.LongTensor = None
 
 
 class BartLearnedSpeakerEmbedding(nn.Module):
@@ -1535,22 +1533,12 @@ class DualAttenEncoder(BartEncoder):
             raise ValueError(
                 "sorted_input_ids and sorted_attention_mask must be provided"
             )
-        input_ids = torch.concat([input_ids, sorted_input_ids], dim=0)
-        original_attention_mask = attention_mask
-        original_sorted_attention_mask = sorted_attention_mask
-        concat_attention_mask = torch.concat(
+        concat_attention_mask = torch.concat(  # for last 8 layers
             [
                 attention_mask,
                 sorted_attention_mask,
             ],
             dim=1,
-        )
-        attention_mask = torch.concat(
-            [
-                attention_mask,
-                sorted_attention_mask,
-            ],
-            dim=0,
         )
 
         # retrieve input_ids and inputs_embeds
@@ -1560,7 +1548,9 @@ class DualAttenEncoder(BartEncoder):
             )
         elif input_ids is not None:
             input_shape = input_ids.size()
+            sorted_input_shape = sorted_input_ids.size()
             input_ids = input_ids.view(-1, input_shape[-1])
+            sorted_input_ids.view(-1, sorted_input_shape[-1])
         elif inputs_embeds is not None:
             input_shape = inputs_embeds.size()[:-1]
         else:
@@ -1568,33 +1558,36 @@ class DualAttenEncoder(BartEncoder):
 
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids) * self.embed_scale
+            sorted_input_embeds = self.embed_tokens(sorted_input_ids) * self.embed_scale
 
         embed_pos = self.embed_positions(input_shape)
+        sorted_embed_pos = self.embed_positions(sorted_input_shape)
 
-        hidden_states = inputs_embeds + embed_pos
-        hidden_states = self.layernorm_embedding(hidden_states)
-        hidden_states = nn.functional.dropout(
-            hidden_states, p=self.dropout, training=self.training
+        normal_hidden_state = inputs_embeds + embed_pos
+        normal_hidden_state = self.layernorm_embedding(normal_hidden_state)
+        normal_hidden_state = nn.functional.dropout(
+            normal_hidden_state, p=self.dropout, training=self.training
         )
-
+        imptance_hidden_state = sorted_input_embeds + sorted_embed_pos
+        imptance_hidden_state = self.layernorm_embedding(imptance_hidden_state)
+        imptance_hidden_state = nn.functional.dropout(
+            imptance_hidden_state, p=self.dropout, training=self.training
+        )
         # expand attention_mask
         if attention_mask is not None:
             # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
 
-            concat_attention_mask = _expand_mask(
+            expanded_concat_attention_mask = _expand_mask(
                 concat_attention_mask, inputs_embeds.dtype
             )
-            attention_mask = _expand_mask(attention_mask, inputs_embeds.dtype)
+            normal_attention_mask = _expand_mask(attention_mask, inputs_embeds.dtype)
+            imptance_attention_mask = _expand_mask(
+                sorted_attention_mask, sorted_input_embeds.dtype
+            )
 
         encoder_states = () if output_hidden_states else None
         all_attentions = () if output_attentions else None
 
-        normal_attention_mask, imptance_attention_mask = torch.split(
-            attention_mask, split_size_or_sections=[1, 1], dim=0
-        )
-        normal_hidden_state, imptance_hidden_state = torch.split(
-            hidden_states, split_size_or_sections=[1, 1], dim=0
-        )
         # check if head_mask has a correct number of layers specified if desired
         if head_mask is not None:
             assert head_mask.size()[0] == (
@@ -1632,16 +1625,14 @@ class DualAttenEncoder(BartEncoder):
                     hidden_states = torch.concat(
                         [normal_hidden_state, imptance_hidden_state], dim=1
                     )
-                    attention_mask = torch.concat(
-                        [normal_attention_mask, imptance_attention_mask], dim=1
-                    )
+
                     output_attentions_mat = torch.concat(
                         [layer_outputs[1], impt_outputs[1]], dim=1
                     )
                 else:
                     layer_outputs = encoder_layer(
                         hidden_states,
-                        concat_attention_mask,
+                        expanded_concat_attention_mask,
                         layer_head_mask=(
                             head_mask[idx] if head_mask is not None else None
                         ),
@@ -1661,10 +1652,9 @@ class DualAttenEncoder(BartEncoder):
                 if v is not None
             )
         # Cross-Attention Block
-        return BaseModelOutput(
+        return DualAttenModelOutput(
             last_hidden_state=hidden_states,
-            hidden_states=encoder_states,
-            attentions=all_attentions,
+            encoder_attn_mask=concat_attention_mask,
         )
 
 
@@ -1763,15 +1753,13 @@ class BaseBart(BartPretrainedModel):
 
         if isinstance(encoder_outputs, BaseModelOutput):
             encoder_hidden_states = encoder_outputs.last_hidden_state
-            encoder_attention_mask = torch.concat(
-                [attention_mask, kwargs["sorted_attention_mask"]], dim=1
-            )
+            encoder_attention_mask = attention_mask
         elif isinstance(encoder_outputs, DualBaseModelOutput):
             encoder_hidden_states = (None,)
             encoder_attention_mask = None
         elif isinstance(encoder_outputs, DualAttenModelOutput):
-            encoder_hidden_states = (None,)
-            encoder_attention_mask = None
+            encoder_hidden_states = encoder_outputs.last_hidden_state
+            encoder_attention_mask = encoder_outputs.encoder_attn_mask
         # decoder outputs consists of (dec_features, past_key_value, dec_hidden, dec_attn)
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
