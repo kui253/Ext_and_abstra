@@ -8,6 +8,7 @@
     "summary_column": "summary",
     "speaker_column": "names",
     "use_corefed_utt": true,
+    "in_val_and_test": false,
     "unique_speaker_column": "nameSetInorder",
     "train_file": "../data/samsum/samsum_train_sum_center.json",
     "validation_file": "../data/samsum/samsum_validation_sum_center.json",
@@ -56,6 +57,7 @@
     "eval_accumulation_steps": -1,
     "gradient_accumulation_steps": 8,
     "learning_rate": 2e-05,
+    
     "weight_decay": 0,
     "adam_beta1": 0.9,
     "adam_beta2": 0.999,

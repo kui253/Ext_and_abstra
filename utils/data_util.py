@@ -215,25 +215,28 @@ def data_preprocessing(datasets, tokenizer, training_args, data_args, model_args
             model_inputs = {"sorted_input_ids": [], "sorted_attention_mask": []}
 
             inputs = []
+
             for batch_idx in range(bs):
-                if data_args.use_corefed_utt:
-                    utts = pred_utts[batch_idx].split("#")  # List[str]
-                    utts = [utts[i] for i in idxs[batch_idx]]
-                    joint_utts = "<sep>".join(utts)
-                else:
-                    utts = unit_utts[batch_idx].split("#")  # List[str]
-                    utts = [utts[i] for i in idxs[batch_idx]]
-                    joint_utts = "<sep>".join(utts)
-                tokenized_utts = tokenizer(
-                    joint_utts,
-                    max_length=data_args.max_source_length,
-                    padding=padding,
-                    truncation=True,
-                )
-                model_inputs["sorted_input_ids"].append(tokenized_utts["input_ids"])
-                model_inputs["sorted_attention_mask"].append(
-                    tokenized_utts["attention_mask"]
-                )
+                if not data_args.in_val_and_test:
+                    if data_args.use_corefed_utt:
+                        utts = pred_utts[batch_idx].split("#")  # List[str]
+                        utts = [utts[i] for i in idxs[batch_idx]]
+                        joint_utts = "<sep>".join(utts)
+                    else:
+                        utts = unit_utts[batch_idx].split("#")  # List[str]
+                        utts = [utts[i] for i in idxs[batch_idx]]
+                        joint_utts = "<sep>".join(utts)
+                    tokenized_utts = tokenizer(
+                        joint_utts,
+                        max_length=data_args.max_source_length,
+                        padding=padding,
+                        truncation=True,
+                    )
+                    model_inputs["sorted_input_ids"].append(tokenized_utts["input_ids"])
+                    model_inputs["sorted_attention_mask"].append(
+                        tokenized_utts["attention_mask"]
+                    )
+
                 # model_inputs["id"].append(ids[batch_idx])
                 if "<sep>" not in tokenizer.additional_special_tokens:
                     special_tokens_dict = {"additional_special_tokens": ["<sep>"]}
@@ -250,6 +253,9 @@ def data_preprocessing(datasets, tokenizer, training_args, data_args, model_args
             )
             model_inputs["input_ids"] = baseline_input["input_ids"]
             model_inputs["attention_mask"] = baseline_input["attention_mask"]
+            if data_args.in_val_and_test:
+                model_inputs["sorted_input_ids"] = baseline_input["input_ids"]
+                model_inputs["sorted_attention_mask"] = baseline_input["attention_mask"]
 
         elif data_args.dataset_type == "baseline":
             if "<sep>" not in tokenizer.additional_special_tokens:
@@ -315,6 +321,8 @@ def data_preprocessing(datasets, tokenizer, training_args, data_args, model_args
         output_datasets[0] = train_dataset
 
     if training_args.do_eval:
+        if not data_args.in_val_and_test:
+            data_args.in_val_and_test = True
         max_target_length = data_args.val_max_target_length
         if "validation" not in datasets:
             raise ValueError("--do_eval requires a validation dataset")
@@ -331,6 +339,8 @@ def data_preprocessing(datasets, tokenizer, training_args, data_args, model_args
         output_datasets[1] = eval_dataset
 
     if training_args.do_predict:
+        if not data_args.in_val_and_test:
+            data_args.in_val_and_test = True
         max_target_length = data_args.val_max_target_length
         if "test" not in datasets:
             raise ValueError("--do_predict requires a test dataset")

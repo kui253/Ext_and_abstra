@@ -136,6 +136,10 @@ class DataTrainingArguments:
             "help": "The configuration name of the dataset to use (via the datasets library)."
         },
     )
+    in_val_and_test: Optional[str] = field(
+        default=False,
+        metadata={"help": "change the input of val and test stage"},
+    )
     dataset_type: Optional[str] = field(
         default=None,
         metadata={
