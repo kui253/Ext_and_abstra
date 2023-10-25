@@ -1,7 +1,7 @@
 import enum
 from datasets import dataset_dict, load_dataset, DatasetDict
 from networkx.readwrite.json_graph import adjacency
-from transformers import DataCollatorForSeq2Seq
+from transformers import DataCollatorForSeq2Seq, BertTokenizer
 import nltk
 import logging
 from tqdm import tqdm
@@ -204,29 +204,58 @@ def data_preprocessing(datasets, tokenizer, training_args, data_args, model_args
         ## examples:{str:[List[List]]}
         unit_utts = examples[text_column]  # List[List[str]]
         pred_utts = examples["pred_utt"]
-        idxs = examples["utts_idx_inorder"]
+        if maping_prefix == "train":
+            if data_args.use_filtered_idxs:
+                idxs = examples["utts_idx_inorder_sorted"]
+            else:
+                idxs = examples["utts_idx_inorder"]
+        else:
+            if data_args.sents_type == 'concat':
+                idxs = examples['concat_action_select']
+            elif data_args.sents_type == "pred_only":
+                idxs = examples['selected_sents_bert']
+            else:
+                idxs = examples['utts_idx_inorder_sorted']
         targets = examples[summary_column]  #  List[str]
-        speakers = examples[speaker_column]  # List[List[str]]
-        unique_speakers = examples[unique_speaker_column]  # List[List[str]]
         # ids = examples["id"]
 
         bs = len(unit_utts)
-        if data_args.dataset_type == "importanceattn":
+        if model_args.model_type == "importanceattn":
             model_inputs = {"sorted_input_ids": [], "sorted_attention_mask": []}
 
             inputs = []
 
             for batch_idx in range(bs):
                 if not data_args.in_val_and_test:
+                    utts = pred_utts[batch_idx].split("#")
                     if data_args.use_corefed_utt:
                         utts = pred_utts[batch_idx].split("#")  # List[str]
-                        utts = [utts[i] for i in idxs[batch_idx]]
+                        utts = [utts[i] for i in idxs[batch_idx] if i < len(idxs[batch_idx])]
                         joint_utts = "<sep>".join(utts)
                     else:
                         utts = unit_utts[batch_idx].split("#")  # List[str]
-                        utts = [utts[i] for i in idxs[batch_idx]]
+                        utts = [utts[i] for i in idxs[batch_idx] if i < len(idxs[batch_idx])]
                         joint_utts = "<sep>".join(utts)
+
+                    # if len(actions[batch_idx]) == 1 and actions[batch_idx][0] == -1:
+                    #     action_per_person = utts[0]
+                    # elif len(actions[batch_idx]) == 1 and actions[batch_idx][0] != -1:
+                    #     action_per_person = utts[actions[batch_idx][0]]
+                    # else:
+                    #     action_per_person = [
+                    #         utts[i] for i in actions[batch_idx] if i < len(utts)
+                    #     ]
+                    # if len(actions_sent[batch_idx]) == 1:
+                    #     if actions_sent[batch_idx][0] == "none":
+                    #         action_per_person = re.sub(
+                    #             "#", "<sep>", pred_utts[batch_idx]
+                    #         )
+                    #     else:
+                    #         action_per_person = actions_sent[batch_idx][0]
+                    # else:
+                    #     action_per_person = " <sep> ".join(actions_sent[batch_idx])
                     tokenized_utts = tokenizer(
+                        #action_per_person,
                         joint_utts,
                         max_length=data_args.max_source_length,
                         padding=padding,
@@ -257,7 +286,7 @@ def data_preprocessing(datasets, tokenizer, training_args, data_args, model_args
                 model_inputs["sorted_input_ids"] = baseline_input["input_ids"]
                 model_inputs["sorted_attention_mask"] = baseline_input["attention_mask"]
 
-        elif data_args.dataset_type == "baseline":
+        elif model_args.model_type == "baseline":
             if "<sep>" not in tokenizer.additional_special_tokens:
                 special_tokens_dict = {"additional_special_tokens": ["<sep>"]}
                 tokenizer.add_special_tokens(special_tokens_dict)
@@ -301,6 +330,7 @@ def data_preprocessing(datasets, tokenizer, training_args, data_args, model_args
 
     output_datasets = [None, None, None]
     ## dataset mappping
+    maping_prefix = 'train'
     if model_args.model_type == "importanceattn":
         map_function = preprocess_v2_function
     else:
@@ -321,8 +351,9 @@ def data_preprocessing(datasets, tokenizer, training_args, data_args, model_args
         output_datasets[0] = train_dataset
 
     if training_args.do_eval:
-        if not data_args.in_val_and_test:
-            data_args.in_val_and_test = True
+        maping_prefix = 'eval'
+        # if not data_args.in_val_and_test:
+        #     data_args.in_val_and_test = True
         max_target_length = data_args.val_max_target_length
         if "validation" not in datasets:
             raise ValueError("--do_eval requires a validation dataset")
@@ -339,8 +370,9 @@ def data_preprocessing(datasets, tokenizer, training_args, data_args, model_args
         output_datasets[1] = eval_dataset
 
     if training_args.do_predict:
-        if not data_args.in_val_and_test:
-            data_args.in_val_and_test = True
+        maping_prefix = 'predict'
+        # if not data_args.in_val_and_test:
+        #     data_args.in_val_and_test = True
         max_target_length = data_args.val_max_target_length
         if "test" not in datasets:
             raise ValueError("--do_predict requires a test dataset")

@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-CUDA_VISIBLE=2
+# first just with_pred_only_train_with_unsorted
+# second with concat_bert_preds_train_with_sorted
+# thrid with_label_train_with_sorted
+# forth with_label_sorted_trainn_with_sorted
+CUDA_VISIBLE=3
 logs_dir=./logs/
-log_name=data_center_impt_modifiedV3_sub_val_and_test.log
+log_name=with_label_sorted_trainn_with_sorted.log
+output_file=../results/bartlarge/forth
 config_file=./config/graphbart_configV3.json
 CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE} \
-    nohup python run_summarization.py "${config_file}" > "${logs_dir}${log_name}" 2>&1 &
+    nohup python run_summarization.py "${config_file}" "${output_file}" > "${logs_dir}${log_name}" 2>&1 &

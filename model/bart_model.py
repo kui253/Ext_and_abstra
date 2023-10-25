@@ -1676,6 +1676,10 @@ class BaseBart(BartPretrainedModel):
             self.decoder = BartDecoderWithDualCrossAttention(config, self.shared)
         elif config.model_type == "importanceattn":
             self.encoder = DualAttenEncoder(config, self.shared)
+            # if not hasattr(self.encoder, "layers_importance"):
+            #     self.encoder.layers_importance = copy.deepcopy(
+            #         self.encoder.layers[: self.encoder.split_encoder_layers]
+            #     )
             self.decoder = BartDecoder(config, self.shared)
         else:
             print("请指定模型类型")
@@ -2046,6 +2050,10 @@ class BART(BartPretrainedModel):
             if "imptance_encoder_attn_mask" in encoder_outputs.keys():
                 encoder_outputs["imptance_encoder_attn_mask"] = encoder_outputs[
                     "imptance_encoder_attn_mask"
+                ].index_select(0, expanded_return_idx.to(device))
+            if "encoder_attn_mask" in encoder_outputs.keys():
+                encoder_outputs["encoder_attn_mask"] = encoder_outputs[
+                    "encoder_attn_mask"
                 ].index_select(0, expanded_return_idx.to(device))
         return input_ids, model_kwargs
 

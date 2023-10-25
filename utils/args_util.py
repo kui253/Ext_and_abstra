@@ -152,11 +152,21 @@ class DataTrainingArguments:
             "help": "The  name of the dataset to compose (via the datasets library)."
         },
     )
+    sents_type: Optional[str] = field(
+        default='pred_only',
+        metadata={
+            "help": "which to choose to train "
+        },
+    )
     text_column: Optional[str] = field(
         default=None,
         metadata={
             "help": "The name of the column in the datasets containing the full texts (for summarization)."
         },
+    )
+    use_filtered_idxs: bool = field(
+        default=True,
+        metadata={"help": "to use filtered_idxs"},
     )
     summary_column: Optional[str] = field(
         default=None,

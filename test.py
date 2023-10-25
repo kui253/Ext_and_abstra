@@ -32,6 +32,41 @@ def get_rouge_score(hyps, refs):
 #     for i in range(len(names)-1):
 #         if names[i] == names[i+1]:
 #             utts +=
+def filter_sum_center_data(path, path_bert,mode="train", save_path=None):
+    import json
+
+    with open(path, "r") as f:
+        data = json.load(f)
+    pbar = tqdm(data, desc="replacing")
+    with open(path_bert,'r') as f:
+        data_bert = json.load(f)
+    
+    for i, example in enumerate(pbar):
+        # example.pop('document_clusters')
+        # example.pop("clusters")
+        # example.pop('unit_utts_version2')
+        temp = [0] * len(example['utterances'])
+        # example["utts_idx_inorder_sorted"] = sorted(set(example["utts_idx_inorder"]))
+        for item in example["utts_idx_inorder_sorted"]:
+            if item < len(temp):
+                temp[item] = 1
+        data_bert[i]['label_unchanged'] = temp
+    # save_path += "samsum_{}_sum_center_sorted.json".format(mode)
+    save_path += '{}_bertExt.json'.format(mode)
+    json.dump(data_bert, open(save_path, "w"))
+
+
+def get_names(path, mode="train", save_path=None):
+    import json
+
+    with open(path, "r") as f:
+        data = json.load(f)
+    pbar = tqdm(data, desc="filtering")
+    names = []
+    for example in pbar:
+        names.append({"name": list(set(example["names"]))})
+    save_path += "samsum_{}_names.json".format(mode)
+    json.dump(names, open(save_path, "w"))
 
 
 def get_sum_center_data(path, mode="train", save_path=None, use_unit=False):
@@ -84,18 +119,21 @@ def get_sum_center_data(path, mode="train", save_path=None, use_unit=False):
 
 
 if __name__ == "__main__":
-    get_sum_center_data(
-        "/data1/whd/diaResearch/SDDS/data/samsum/samsum_train2.json",
+    filter_sum_center_data(
+        "/data1/whd/diaResearch/SDDS/data/samsum/samsum_train_sum_center_sorted.json",
+        '/data1/whd/diaResearch/SDDS/data/samsum/train_BertExt.json',
         "train",
         "/data1/whd/diaResearch/SDDS/data/samsum/",
     )
-    get_sum_center_data(
-        "/data1/whd/diaResearch/SDDS/data/samsum/samsum_validation2.json",
+    filter_sum_center_data(
+        "/data1/whd/diaResearch/SDDS/data/samsum/samsum_validation_sum_center_sorted.json",
+        '/data1/whd/diaResearch/SDDS/data/samsum/validation_BertExt.json',
         "validation",
         "/data1/whd/diaResearch/SDDS/data/samsum/",
     )
-    get_sum_center_data(
-        "/data1/whd/diaResearch/SDDS/data/samsum/samsum_test2.json",
+    filter_sum_center_data(
+        "/data1/whd/diaResearch/SDDS/data/samsum/samsum_test_sum_center_sorted.json",
+        '/data1/whd/diaResearch/SDDS/data/samsum/test_BertExt.json',
         "test",
         "/data1/whd/diaResearch/SDDS/data/samsum/",
     )

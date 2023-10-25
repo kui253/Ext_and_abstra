@@ -3,7 +3,6 @@ import math
 import os
 
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-
 # my own module
 from utils.training_util import (
     ShowModelParamsCallBack,
@@ -20,7 +19,6 @@ from typing import Optional
 import nltk  # Here to have a nice missing dependency error message early on
 import numpy as np
 from datasets import load_dataset, load_metric
-
 import transformers
 from filelock import FileLock
 from transformers import (
@@ -28,13 +26,15 @@ from transformers import (
     AutoModelForSeq2SeqLM,
     AutoTokenizer,
     HfArgumentParser,
+    BertModel,
     set_seed,
 )
 from transformers.optimization import AdamW
 from transformers.file_utils import is_offline_mode
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from transformers.utils import check_min_version
-
+from _transformers.seq2seq_trainer import BertTrainer
+import torch.nn as nn
 # my own module
 from utils.args_util import ModelArguments, DataTrainingArguments, check_args
 from _transformers.data_collator import MyDataCollatorForSeq2Seq
@@ -44,6 +44,7 @@ from utils import model_util, data_util, training_util
 from utils.CONSTANT import *
 import logging
 from utils.metrics_util import get_bert_score, get_rouge_score, get_meteor_score
+from bertExt.bert import BertExtra
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.7.0.dev0")
@@ -61,6 +62,7 @@ except (LookupError, OSError):
         nltk.download("punkt", quiet=True)
 
 
+
 def main():
     # See all possible arguments in src/transformers/training_args.py
     # or by passing the --help flag to this script.
@@ -70,8 +72,9 @@ def main():
         (ModelArguments, DataTrainingArguments, Seq2SeqTrainingArguments)
     )
     config_file = "./config/graphbart_configV3.json"
-    if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-        config_file = sys.argv[1]
+ 
+    config_file = sys.argv[1]
+    output_list = sys.argv[2]
     model_args, data_args, training_args = parser.parse_json_file(
         config_file
     )  # 这里会重写之前hfArgumentParser中的值
@@ -80,6 +83,7 @@ def main():
     )
     # 出现版本问题 最好使用transformers == 4.8.2
     # save config file
+    training_args.output_dir = output_list
     output_dir = training_args.output_dir
     if not os.path.isdir(output_dir):
         os.system(f"mkdir {output_dir}")

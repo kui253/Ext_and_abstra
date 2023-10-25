@@ -184,6 +184,54 @@ class MyDataCollatorForSeq2Seq:
         return padded_features
 
 
+def pad_to_same_dim(feature_list, pad_token_id, is_input_ids=False):
+    max_len = min(max([len(x) for x in feature_list]), 512)
+    if is_input_ids:
+        all_attentions = []
+    for idx in range(len(feature_list)):
+        if len(feature_list[idx]) < max_len:
+            feature_list[idx] += [pad_token_id] * (max_len - len(feature_list[idx]))
+        else:
+            feature_list[idx] = feature_list[idx][:max_len]
+        if is_input_ids:
+            if len(feature_list[idx]) < max_len:
+                attention_mask = [1] * len(feature_list[idx]) + [0] * (
+                    max_len - len(feature_list[idx])
+                )
+            else:
+                attention_mask = [1] * max_len
+            all_attentions.append(attention_mask)
+
+    if not is_input_ids:
+        return torch.tensor(feature_list)
+    else:
+        return torch.tensor(feature_list), torch.tensor(
+            all_attentions, dtype=torch.bool
+        )
+
+
+def MyDataCollatorForBert(features):
+    paded_features = {}
+    paded_features["input_ids"], paded_features["attention_mask"] = pad_to_same_dim(
+        [f["input_ids"] for f in features], 0, True
+    )
+    paded_features["token_type_ids"] = pad_to_same_dim(
+        [f["tokenType_id"] for f in features], 0
+    )
+    for f in features:
+        f["clss_pos"] = [i for i in f["clss_pos"] if i < 512]
+        f["labels"] = f["labels"][: len(f["clss_pos"])]
+        assert len(f["labels"]) == len(f["clss_pos"]),'wrong input dim'
+    paded_features["labels"] = pad_to_same_dim([f["labels"] for f in features], 0)
+    paded_features["clss_pos"] = pad_to_same_dim([f["clss_pos"] for f in features], -1)
+    clss_mask = torch.ones(paded_features["clss_pos"].shape, dtype=torch.bool)
+    clss_mask[paded_features["clss_pos"] == -1] = 0
+    paded_features["clss_mask"] = clss_mask
+    
+    paded_features["original_sent"] = [f["original_sent"] for f in features]
+    return paded_features
+
+
 def pad_other_features(features, pad_token_id):
     res_len = features["input_ids"].shape[1] - features["sorted_input_ids"].shape[1]
     if res_len > 0:
